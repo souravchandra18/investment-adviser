@@ -1,0 +1,13 @@
+alloc_per_stock: 15000
+watchlist_url: "https://raw.githubusercontent.com/datasets/nifty50/master/data/nifty_50.csv"
+watchlist_fallback:
+  - TCS
+  - RELIANCE
+  - INFY
+top_n: 12
+filters:
+  min_roe: 15.0
+  min_roce: 15.0
+  max_debt_equity: 0.6
+  min_sales_cagr_5y: 8.0
+  min_op_margin: 10.0
