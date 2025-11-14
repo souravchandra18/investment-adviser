@@ -2,7 +2,7 @@
 """
 investor_report.py — Daily Investor Report (NSE)
 
-Fetches all NSE stocks from Screener.in, computes fundamental & valuation metrics,
+Fetches all NSE-listed stocks via nsetools, computes fundamental & valuation metrics,
 ranks stocks into Conservative / Moderate / High-Growth portfolios,
 and exports HTML + CSV report.
 
@@ -16,13 +16,12 @@ import yaml
 import traceback
 from datetime import datetime
 from tqdm import tqdm
-import requests
-from bs4 import BeautifulSoup
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from nsetools import Nse
 
 # ----------------------
 # Config & folders
@@ -33,7 +32,6 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 CONFIG_PATH = "config.yaml"
 DEFAULT_ALLOC = 15000
-CACHE_NSE_TICKERS = "nse_stocks.csv"
 
 # ----------------------
 # Load config
@@ -59,48 +57,18 @@ def load_config():
     return cfg
 
 # ----------------------
-# Fetch all NSE tickers from Screener.in
+# Fetch NSE universe via nsetools
 # ----------------------
-def fetch_all_nse_tickers(cache_file=CACHE_NSE_TICKERS):
-    if os.path.exists(cache_file):
-        df = pd.read_csv(cache_file)
-        return df['Ticker'].dropna().astype(str).str.upper().tolist()
-    
-    print("Fetching NSE stock list from Screener.in ...")
-    base_url = "https://www.screener.in/companies/?page={}"
-    tickers = []
-    page = 1
-    while True:
-        try:
-            resp = requests.get(base_url.format(page), timeout=10)
-            if resp.status_code != 200:
-                break
-            soup = BeautifulSoup(resp.text, "html.parser")
-            table = soup.find("table")
-            if not table:
-                break
-            rows = table.find_all("tr")
-            if len(rows) <= 1:
-                break
-            for row in rows[1:]:
-                cols = row.find_all("td")
-                if cols:
-                    ticker = cols[1].text.strip().upper()  # Screener: 2nd col is symbol
-                    if ticker and ticker not in tickers:
-                        tickers.append(ticker)
-            page += 1
-            time.sleep(0.5)
-        except Exception as e:
-            print("Error fetching Screener.in page:", e)
-            break
-
-    # Save to CSV cache
-    pd.DataFrame({'Ticker': tickers}).to_csv(cache_file, index=False)
+def fetch_all_nse_tickers():
+    nse = Nse()
+    codes = nse.get_stock_codes()
+    # remove first key 'SYMBOL'
+    tickers = [code.upper() for code in codes.keys() if code != 'SYMBOL']
     print(f"Fetched {len(tickers)} NSE tickers.")
     return tickers
 
 # ----------------------
-# Fetch symbol metrics (same as your previous logic)
+# Fetch symbol metrics via yfinance
 # ----------------------
 def fetch_symbol_metrics(ticker):
     sym = ticker + ".NS"
@@ -116,7 +84,6 @@ def fetch_symbol_metrics(ticker):
         info = tk.info or {}
         out["info"] = info
 
-        # trailing PE / PEG / market cap
         trailing_pe = info.get("trailingPE") or np.nan
         peg = info.get("pegRatio") or np.nan
         market_cap = info.get("marketCap") or np.nan
@@ -124,16 +91,14 @@ def fetch_symbol_metrics(ticker):
         out["peg"] = float(peg) if peg else np.nan
         out["market_cap"] = int(market_cap) if market_cap else np.nan
 
-        # volatility
         returns = hist["Close"].pct_change().dropna()
         out["ann_vol_pct"] = round(float(returns.std() * (252**0.5) * 100.0),2)
-
         return out
     except Exception:
         return None
 
 # ----------------------
-# Scoring, portfolio, report functions (keep your previous logic)
+# Scoring & portfolio (simplified)
 # ----------------------
 def compute_quality_score(m, filters): return 0
 def compute_valuation_score(m, universe_pe_median): return 0
